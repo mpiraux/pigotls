@@ -14,7 +14,6 @@ int collect_quic_extension(ptls_t *tls, struct st_ptls_handshake_properties_t *p
 	return type == QUIC_TP_EXTENSION;  // Only collect QUIC extensions
 }
 
-
 int collected_extensions(ptls_t *tls, struct st_ptls_handshake_properties_t *properties, ptls_raw_extension_t *extensions) {
 	while(extensions->type != 0xffff) {
 		if(extensions->type == QUIC_TP_EXTENSION) {
@@ -64,8 +63,10 @@ import (
 	"fmt"
 	"unsafe"
 )
+
 const (
 	QuicTransportParametersTLSExtension = 26
+	QuicBaseLabel                       = "QUIC "
 )
 
 type Error struct {
@@ -124,6 +125,7 @@ func NewConnection(serverName string, ALPN string) *Connection {
 func (c *Connection) InitiateHandshake() ([]byte, bool, error) {
 	return c.Handshake(nil)
 }
+
 // Uses data received and returns data to be sent to the peer as well as a boolean indicating if the handshake should continue
 func (c *Connection) Handshake(data []byte) ([]byte, bool, error) {
 	var sendbuf C.ptls_buffer_t
@@ -147,18 +149,67 @@ func (c *Connection) Handshake(data []byte) ([]byte, bool, error) {
 
 	return bufToSlice(sendbuf), ret != 0, nil
 }
+func (c *Connection) hash() *C.ptls_hash_algorithm_t {
+	cipherSuite := C.ptls_get_cipher(c.tls)
+	if cipherSuite == nil {
+		return &C.ptls_openssl_sha256
+	}
+	return cipherSuite.hash
+}
+func (c *Connection) aead() *C.ptls_aead_algorithm_t {
+	cipherSuite := C.ptls_get_cipher(c.tls)
+	if cipherSuite == nil {
+		return &C.ptls_openssl_aes128gcm
+	}
+	return cipherSuite.aead
+}
+func (c *Connection) HashDigestSize() int {
+	return int(c.hash().digest_size)
+}
+func (c *Connection) AEADKeySize() int {
+	return int(c.aead().key_size)
+}
+func (c *Connection) AEADIvSize() int {
+	return int(c.aead().iv_size)
+}
+func (c *Connection) HkdfExtract(saltIn, input []byte) []byte {
+	var output [256]byte
+	C.ptls_hkdf_extract(c.hash(), unsafe.Pointer(&output), toIOVec(saltIn), toIOVec(input))
+	return output[:c.hash().digest_size]
+}
+
+func (c *Connection) HkdfExpand(prk, info []byte, length int) []byte {
+	var output [256]byte
+	C.ptls_hkdf_expand(c.hash(), unsafe.Pointer(&output), (C.size_t)(length), toIOVec(prk), toIOVec(info))
+	return output[:length]
+}
+
+func (c *Connection) HkdfExpandLabel(secret []byte, label string, hashValue []byte, length int) []byte {
+	var output [256]byte
+	C.ptls_hkdf_expand_label(c.hash(), unsafe.Pointer(&output), (C.size_t)(length), toIOVec(secret),
+		C.CString(label), toIOVec(hashValue), C.CString(QuicBaseLabel))
+	return output[:length]
+}
+func (c *Connection) ExportSecret(label string, context []byte, isEarly bool) ([]byte, error) {
+	var output [256]byte
+	zeroRtt := 0
+	if isEarly {
+		zeroRtt = 1
+	}
+
+	err := C.ptls_export_secret(c.tls, unsafe.Pointer(&output), (C.size_t)(c.HashDigestSize()), C.CString(label), toIOVec(context), C.int(zeroRtt))
+	if err != 0 {
+		return nil, Error{int(err)}
+	}
+
+	return output[:c.HashDigestSize()], nil
+}
 func (c *Connection) Close() {
 	C.ptls_free(c.tls)
 }
 
-func bufToSlice(buf C.ptls_buffer_t) []byte {
-	return C.GoBytes(unsafe.Pointer(buf.base), C.int(buf.off))
-}
-func ioVecToSlice(vec C.ptls_iovec_t) []byte {
-	return C.GoBytes(unsafe.Pointer(vec.base), C.int(vec.len))
-}
-func toIOVec(data []byte) C.ptls_iovec_t {
-	return C.ptls_iovec_init(C.CBytes(data), sizeofBytes(data))
-}
-func sizeofString(s string) C.size_t {return (C.size_t)(len(s))}
-func sizeofBytes(b []byte) C.size_t {return (C.size_t)(len(b))}
+func bufToSlice(buf C.ptls_buffer_t) []byte  { return C.GoBytes(unsafe.Pointer(buf.base), C.int(buf.off)) }
+func ioVecToSlice(vec C.ptls_iovec_t) []byte { return C.GoBytes(unsafe.Pointer(vec.base), C.int(vec.len)) }
+func toIOVec(data []byte) C.ptls_iovec_t     { return C.ptls_iovec_init(C.CBytes(data), sizeofBytes(data)) }
+func sizeofString(s string) C.size_t         { return (C.size_t)(len(s)) }
+func sizeofBytes(b []byte) C.size_t          { return (C.size_t)(len(b)) }
