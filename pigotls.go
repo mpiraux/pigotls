@@ -15,15 +15,12 @@ int collect_quic_extension(ptls_t *tls, struct st_ptls_handshake_properties_t *p
 }
 
 int collected_extensions(ptls_t *tls, struct st_ptls_handshake_properties_t *properties, ptls_raw_extension_t *extensions) {
-	while(extensions->type != 0xffff) {
-		if(extensions->type == QUIC_TP_EXTENSION) {
-			ptls_raw_extension_t *rec_ext = properties->additional_extensions + 1;
-			rec_ext->type = extensions->type;
-			rec_ext->data.base = (uint8_t*)malloc(extensions->data.len);
-			rec_ext->data.len = extensions->data.len;
-			memcpy(rec_ext->data.base, extensions->data.base, extensions->data.len);
-			break;
-		}
+	if(extensions->type == QUIC_TP_EXTENSION) {
+		ptls_raw_extension_t *rec_ext = properties->additional_extensions + 1;
+		rec_ext->type = extensions->type;
+		rec_ext->data.base = (uint8_t*)malloc(extensions->data.len);
+		rec_ext->data.len = extensions->data.len;
+		memcpy(rec_ext->data.base, extensions->data.base, extensions->data.len);
 	}
 	return 0;
 }
@@ -61,7 +58,7 @@ ptls_raw_extension_t get_extension_data(ptls_handshake_properties_t *props, int 
 	return props->additional_extensions[index];
 }
 
-int cb(ptls_save_ticket_t *self, ptls_t *tls, ptls_iovec_t src) {
+int cb_ticket(ptls_save_ticket_t *self, ptls_t *tls, ptls_iovec_t src) {
 	ptls_iovec_t *receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_save_ticket_t));
 	receiver->base = malloc(src.len);
 	memcpy(receiver->base, src.base, src.len);
@@ -71,10 +68,25 @@ int cb(ptls_save_ticket_t *self, ptls_t *tls, ptls_iovec_t src) {
 
 void set_ticket_cb(ptls_context_t *ctx, ptls_iovec_t *receiver) {
 	ptls_save_ticket_t* save_ticket = malloc(sizeof(ptls_save_ticket_t) + sizeof(ptls_iovec_t*));
-	save_ticket->cb = cb;
+	save_ticket->cb = cb_ticket;
 	ptls_iovec_t** ppreceiver = (ptls_iovec_t**)(((char*)save_ticket) + sizeof(ptls_save_ticket_t));
 	*ppreceiver = receiver;
 	ctx->save_ticket = save_ticket;
+}
+
+void cb_secret(struct st_ptls_log_secret_t *self, ptls_t *tls, const char *label, ptls_iovec_t secret) {
+	ptls_iovec_t *receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_log_secret_t));
+	receiver->base = malloc(secret.len);
+	memcpy(receiver->base, secret.base, secret.len);
+	receiver->len = secret.len;
+}
+
+void set_secret_cb(ptls_context_t *ctx, ptls_iovec_t *receiver) {
+	ptls_log_secret_t* save_secret = malloc(sizeof(ptls_log_secret_t) + sizeof(ptls_iovec_t*));
+	save_secret->cb = cb_secret;
+	ptls_iovec_t** ppreceiver = (ptls_iovec_t**)(((char*)save_secret) + sizeof(ptls_log_secret_t));
+	*ppreceiver = receiver;
+	ctx->log_secret = save_secret;
 }
 */
 import "C"
@@ -100,13 +112,15 @@ type Context struct {
 	ctx                 *C.ptls_context_t
 	handshakeProperties *C.ptls_handshake_properties_t
 	savedTicket 		*C.ptls_iovec_t
+	exporterSecret 		*C.ptls_iovec_t
 }
 
 func NewContext(ALPN string, resumptionTicket []byte) Context {
 	var ctx C.ptls_context_t
 	var handshakeProperties C.ptls_handshake_properties_t
 	var savedTicket C.ptls_iovec_t
-	c := Context{&ctx, &handshakeProperties, &savedTicket}
+	var exporterSecret C.ptls_iovec_t
+	c := Context{&ctx, &handshakeProperties, &savedTicket, &exporterSecret}
 
 	C.init_ctx(&ctx)
 
@@ -114,6 +128,7 @@ func NewContext(ALPN string, resumptionTicket []byte) Context {
 	resumptionTicketVec := toIOVec(resumptionTicket)
 	C.set_handshake_properties(c.handshakeProperties, &alpnVec, &resumptionTicketVec)
 	C.set_ticket_cb(c.ctx, c.savedTicket)
+	C.set_secret_cb(c.ctx, c.exporterSecret)
 
 	return c
 }
@@ -125,15 +140,18 @@ func (c Context) InitializeCertificateVerifier() {
 func (c Context) SetQUICTransportParameters(extensionData []byte) {
 	C.set_extension_data(c.handshakeProperties, QuicTransportParametersTLSExtension, toIOVec(extensionData))
 }
-func (c Context) GetReceivedQUICTransportParameters() []byte {
+func (c Context) ReceivedQUICTransportParameters() []byte {
 	extension := C.get_extension_data(c.handshakeProperties, 1)
 	if extension._type == QuicTransportParametersTLSExtension {
 		return ioVecToSlice(extension.data)
 	}
 	return nil
 }
-func (c Context) GetResumptionTicket() []byte {
+func (c Context) ResumptionTicket() []byte {
 	return ioVecToSlice(*c.savedTicket)
+}
+func (c Context) ExporterSecret() []byte {
+	return ioVecToSlice(*c.exporterSecret)
 }
 type Connection struct {
 	Context
