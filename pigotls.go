@@ -32,13 +32,14 @@ void init_ctx(ptls_context_t *ctx) {
 	ctx->get_time = &ptls_get_time;
 }
 
-void set_handshake_properties(ptls_handshake_properties_t *props, ptls_iovec_t *alpn, ptls_iovec_t *session_ticket) {
+void set_handshake_properties(ptls_handshake_properties_t *props, ptls_iovec_t *alpn, ptls_iovec_t *session_ticket, size_t *max_early_data) {
 	props->client.negotiated_protocols.count = 1;
 	props->client.negotiated_protocols.list = alpn;
 	props->collect_extension = collect_quic_extension;
 	props->collected_extensions = collected_extensions;
 	if (session_ticket != NULL && session_ticket->base != NULL) {
 		props->client.session_ticket = *session_ticket;
+		props->client.max_early_data_size = max_early_data;
 	}
 }
 
@@ -120,9 +121,10 @@ func (e Error) Error() string {
 type Context struct {
 	ctx                 *C.ptls_context_t
 	handshakeProperties *C.ptls_handshake_properties_t
-	savedTicket 		*C.ptls_iovec_t
-	exporterSecret 		*C.ptls_iovec_t
-	earlyExporterSecret 		*C.ptls_iovec_t
+	savedTicket         *C.ptls_iovec_t
+	exporterSecret      *C.ptls_iovec_t
+	earlyExporterSecret *C.ptls_iovec_t
+	maxEarlyData 		*C.size_t
 }
 
 func NewContext(ALPN string, resumptionTicket []byte) Context {
@@ -131,13 +133,14 @@ func NewContext(ALPN string, resumptionTicket []byte) Context {
 	var savedTicket C.ptls_iovec_t
 	var exporterSecret C.ptls_iovec_t
 	var earlyExporterSecret C.ptls_iovec_t
-	c := Context{&ctx, &handshakeProperties, &savedTicket, &exporterSecret, &earlyExporterSecret}
+	var maxEarlyData C.size_t
+	c := Context{&ctx, &handshakeProperties, &savedTicket, &exporterSecret, &earlyExporterSecret, &maxEarlyData}
 
 	C.init_ctx(&ctx)
 
 	alpnVec := toIOVec([]byte(ALPN))
 	resumptionTicketVec := toIOVec(resumptionTicket)
-	C.set_handshake_properties(c.handshakeProperties, &alpnVec, &resumptionTicketVec)
+	C.set_handshake_properties(c.handshakeProperties, &alpnVec, &resumptionTicketVec, c.maxEarlyData)
 	C.set_ticket_cb(c.ctx, c.savedTicket)
 	C.set_secret_cb(c.ctx, c.exporterSecret, c.earlyExporterSecret)
 
