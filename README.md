@@ -6,5 +6,7 @@ Its main intent is not to be a long-term stable API but a rather-quickly put tog
 ## Installation
 
 ```
+go get github.com/mpiraux/pigotls
+cd $GOPATH/src/github.com/mpiraux/pigotls
 make
 ```
