@@ -1,0 +1,14 @@
+diff --git a/lib/picotls.c b/lib/picotls.c
+index 07c0676..86d8fee 100644
+--- a/lib/picotls.c
++++ b/lib/picotls.c
+@@ -99,8 +99,7 @@
+ /**
+  * list of supported versions in the preferred order
+  */
+-static const uint16_t supported_versions[] = {PTLS_PROTOCOL_VERSION_DRAFT28, PTLS_PROTOCOL_VERSION_DRAFT27,
+-                                              PTLS_PROTOCOL_VERSION_DRAFT26};
++static const uint16_t supported_versions[] = {PTLS_PROTOCOL_VERSION_DRAFT28};
+ 
+ static const uint8_t hello_retry_random[PTLS_HELLO_RANDOM_SIZE] = {0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C,
+                                                                    0x02, 0x1E, 0x65, 0xB8, 0x91, 0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB,
