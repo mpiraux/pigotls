@@ -5,8 +5,8 @@ package pigotls
 #include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
-#include <picotls/include/picotls/openssl.h>
 #include <picotls/include/picotls.h>
+#include <picotls/include/picotls/openssl.h>
 
 #define QUIC_TP_EXTENSION  0xffa5
 
@@ -26,6 +26,7 @@ int collected_extensions(ptls_t *tls, struct st_ptls_handshake_properties_t *pro
 }
 
 void init_ctx(ptls_context_t *ctx) {
+	ctx->hkdf_label_prefix = "quic ";
 	ctx->random_bytes = ptls_openssl_random_bytes;
 	ctx->key_exchanges = ptls_openssl_key_exchanges;
 	ctx->cipher_suites = ptls_openssl_cipher_suites;
@@ -136,7 +137,7 @@ int cb_traffic_secret(struct st_ptls_update_traffic_key_t *self, ptls_t *tls, in
 	return 0;
 }
 
-void set_traffic_secret_cb(ptls_context_t *ctx, ptls_iovec_t *zero_rtt, ptls_iovec_t *hs_enc, ptls_iovec_t *hs_dec, ptls_iovec_t *ap_enc, ptls_iovec_t *ap_dec) {
+void set_traffic_secret_cb(ptls_context_t *ctx, ptls_iovec_t *zero_rtt, ptls_iovec_t *hs_dec, ptls_iovec_t *hs_enc, ptls_iovec_t *ap_dec, ptls_iovec_t *ap_enc) {
 	ptls_update_traffic_key_t* update_secret = malloc(sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*) * 5));
 	update_secret->cb = cb_traffic_secret;
 	ptls_iovec_t** ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t));
@@ -418,13 +419,13 @@ func (c *Connection) Close() {
 
 type Cipher C.ptls_cipher_context_t
 func (c *Connection) NewCipher(key []byte) *Cipher {  // Creates a new symmetric cipher based on the CTR cipher used for AEAD
-	return (Cipher)(C.ptls_cipher_new(c.aead().ctr_cipher, 0, unsafe.Pointer(&key)))
+	return (*Cipher)(C.ptls_cipher_new(c.aead().ctr_cipher, C.int(0), unsafe.Pointer(&key[0])))
 }
 func (c *Cipher) Encrypt(iv []byte, data []byte) []byte {
-	var output [len(data)]byte
-	C.ptls_cipher_init(c, unsafe.Pointer(&iv))
-	C.ptls_cipher_encrypt(c, unsafe.Pointer(&output),  unsafe.Pointer(&data), sizeofBytes(data))
-	return output[:]
+	var output [256]byte
+	C.ptls_cipher_init((*C.ptls_cipher_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&iv[0]))
+	C.ptls_cipher_encrypt((*C.ptls_cipher_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&output),  unsafe.Pointer(&data[0]), sizeofBytes(data))
+	return output[:len(data)]
 }
 
 func bufToSlice(buf C.ptls_buffer_t) []byte  { return C.GoBytes(unsafe.Pointer(buf.base), C.int(buf.off)) }
