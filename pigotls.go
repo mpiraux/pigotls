@@ -5,10 +5,10 @@ package pigotls
 #include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
-#include <picotls/include/picotls/openssl.h>
 #include <picotls/include/picotls.h>
+#include <picotls/include/picotls/openssl.h>
 
-#define QUIC_TP_EXTENSION  26
+#define QUIC_TP_EXTENSION  0xffa5
 
 int collect_quic_extension(ptls_t *tls, struct st_ptls_handshake_properties_t *properties, uint16_t type) {
 	return type == QUIC_TP_EXTENSION;  // Only collect QUIC extensions
@@ -26,6 +26,7 @@ int collected_extensions(ptls_t *tls, struct st_ptls_handshake_properties_t *pro
 }
 
 void init_ctx(ptls_context_t *ctx) {
+	ctx->hkdf_label_prefix = "quic ";
 	ctx->random_bytes = ptls_openssl_random_bytes;
 	ctx->key_exchanges = ptls_openssl_key_exchanges;
 	ctx->cipher_suites = ptls_openssl_cipher_suites;
@@ -98,6 +99,59 @@ void set_secret_cb(ptls_context_t *ctx, ptls_iovec_t *exporter_receiver, ptls_io
 	*ppreceiver = early_exporter_receiver;
 	ctx->log_secret = save_secret;
 }
+
+int handle_message(ptls_t *tls, ptls_buffer_t *sendbuf, size_t in_epoch, const void *input, size_t inlen, ptls_handshake_properties_t *properties) {
+	size_t epoch_offsets[5];
+	return ptls_handle_message(tls, sendbuf, epoch_offsets, in_epoch, input, inlen, properties);
+}
+
+int cb_traffic_secret(struct st_ptls_update_traffic_key_t *self, ptls_t *tls, int is_enc, size_t epoch, const void *secret) {
+	ptls_iovec_t *receiver = NULL;
+
+	ptls_hash_algorithm_t* hash = NULL;
+	ptls_cipher_suite_t* cipher = ptls_get_cipher(tls);
+	if (cipher == NULL) {
+		hash = &ptls_openssl_sha256;
+	} else {
+		hash = cipher->hash;
+	}
+	size_t secret_len = hash->digest_size;
+
+	if (epoch == 1 && is_enc == 1) {
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t));
+	} else if (epoch == 2 && is_enc == 0) {
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t) + sizeof(ptls_iovec_t*));
+	} else if (epoch == 2 && is_enc == 1) {
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*) * 2));
+	} else if (epoch == 3 && is_enc == 0) {
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*) * 3));
+	} else if (epoch == 3 && is_enc == 1) {
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*) * 4));
+	}
+
+	if (receiver != NULL) {
+		receiver->base = malloc(secret_len);
+		memcpy(receiver->base, secret, secret_len);
+		receiver->len = secret_len;
+	}
+	return 0;
+}
+
+void set_traffic_secret_cb(ptls_context_t *ctx, ptls_iovec_t *zero_rtt, ptls_iovec_t *hs_dec, ptls_iovec_t *hs_enc, ptls_iovec_t *ap_dec, ptls_iovec_t *ap_enc) {
+	ptls_update_traffic_key_t* update_secret = malloc(sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*) * 5));
+	update_secret->cb = cb_traffic_secret;
+	ptls_iovec_t** ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t));
+	*ppreceiver = zero_rtt;
+	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t) + sizeof(ptls_iovec_t*));
+	*ppreceiver = hs_dec;
+	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*)*2));
+	*ppreceiver = hs_enc;
+	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*)*3));
+	*ppreceiver = ap_dec;
+	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*)*4));
+	*ppreceiver = ap_enc;
+	ctx->update_traffic_key = update_secret;
+}
 */
 import "C"
 import (
@@ -106,8 +160,17 @@ import (
 )
 
 const (
-	QuicTransportParametersTLSExtension = 26
-	QuicBaseLabel                       = "QUIC "
+	QuicTransportParametersTLSExtension = 0xffa5
+	QuicBaseLabel                       = "quic "
+)
+
+type Epoch int
+
+const (
+	EpochInitial   Epoch = 0
+	Epoch0RTT            = 1
+	EpochHandshake       = 2
+	Epoch1RTT            = 3
 )
 
 type Error struct {
@@ -125,6 +188,12 @@ type Context struct {
 	exporterSecret      *C.ptls_iovec_t
 	earlyExporterSecret *C.ptls_iovec_t
 	maxEarlyData 		*C.size_t
+
+	zeroRTTSecret *C.ptls_iovec_t
+	hsReadSecret  *C.ptls_iovec_t
+	hsWriteSecret *C.ptls_iovec_t
+	apReadSecret  *C.ptls_iovec_t
+	apWriteSecret *C.ptls_iovec_t
 }
 
 func NewContext(ALPN string, resumptionTicket []byte) Context {
@@ -134,7 +203,28 @@ func NewContext(ALPN string, resumptionTicket []byte) Context {
 	var exporterSecret C.ptls_iovec_t
 	var earlyExporterSecret C.ptls_iovec_t
 	var maxEarlyData C.size_t
-	c := Context{&ctx, &handshakeProperties, &savedTicket, &exporterSecret, &earlyExporterSecret, &maxEarlyData}
+
+	var zeroRTTSecret C.ptls_iovec_t
+	var hsReadSecret  C.ptls_iovec_t
+	var hsWriteSecret C.ptls_iovec_t
+	var apReadSecret  C.ptls_iovec_t
+	var apWriteSecret C.ptls_iovec_t
+
+
+	c := Context{
+		ctx: &ctx,
+		handshakeProperties: &handshakeProperties,
+		savedTicket: &savedTicket,
+		exporterSecret: &exporterSecret,
+		earlyExporterSecret: &earlyExporterSecret,
+		maxEarlyData: &maxEarlyData,
+
+		zeroRTTSecret: &zeroRTTSecret,
+		hsReadSecret: &hsReadSecret,
+		hsWriteSecret: &hsWriteSecret,
+		apReadSecret: &apReadSecret,
+		apWriteSecret: &apWriteSecret,
+	}
 
 	C.init_ctx(&ctx)
 
@@ -143,6 +233,7 @@ func NewContext(ALPN string, resumptionTicket []byte) Context {
 	C.set_handshake_properties(c.handshakeProperties, &alpnVec, &resumptionTicketVec, c.maxEarlyData)
 	C.set_ticket_cb(c.ctx, c.savedTicket)
 	C.set_secret_cb(c.ctx, c.exporterSecret, c.earlyExporterSecret)
+	C.set_traffic_secret_cb(c.ctx, c.zeroRTTSecret, c.hsReadSecret, c.hsWriteSecret, c.apReadSecret, c.apWriteSecret)
 
 	return c
 }
@@ -170,6 +261,21 @@ func (c Context) ExporterSecret() []byte {
 func (c Context) EarlyExporterSecret() []byte {
 	return ioVecToSlice(*c.earlyExporterSecret)
 }
+func (c Context) ZeroRTTSecret() []byte {
+	return ioVecToSlice(*c.zeroRTTSecret)
+}
+func (c Context) HandshakeReadSecret() []byte {
+	return ioVecToSlice(*c.hsReadSecret)
+}
+func (c Context) HandshakeWriteSecret() []byte {
+	return ioVecToSlice(*c.hsWriteSecret)
+}
+func (c Context) ProtectedReadSecret() []byte {
+	return ioVecToSlice(*c.apReadSecret)
+}
+func (c Context) ProtectedWriteSecret() []byte {
+	return ioVecToSlice(*c.apWriteSecret)
+}
 type Connection struct {
 	Context
 	tls *C.ptls_t
@@ -183,6 +289,30 @@ func NewConnection(serverName string, ALPN string, resumptionTicket []byte) *Con
 	C.ptls_set_server_name(c.tls, C.CString(serverName), sizeofString(serverName))
 	return c
 }
+
+func (c *Connection) HandleMessage(data []byte, epoch Epoch) ([]byte, bool, error) {
+	var sendbuf C.ptls_buffer_t
+	C.ptls_buffer_init(&sendbuf, unsafe.Pointer(C.CString("")), 0)
+	defer C.ptls_buffer_dispose(&sendbuf)
+
+	var recbuf unsafe.Pointer = nil
+	var inputLen C.size_t
+
+	if data != nil {
+		recbuf = C.CBytes(data)
+		defer C.free(recbuf)
+		inputLen = sizeofBytes(data)
+	}
+
+	ret := C.handle_message(c.tls, &sendbuf, C.ulong(epoch), recbuf, inputLen, c.Context.handshakeProperties)
+
+	if ret != 0 && ret != C.PTLS_ERROR_IN_PROGRESS {
+		return nil, false, Error{int(ret)}
+	}
+
+	return bufToSlice(sendbuf), ret != 0, nil
+}
+
 func (c *Connection) InitiateHandshake() ([]byte, bool, error) {
 	var sendbuf C.ptls_buffer_t
 	C.ptls_buffer_init(&sendbuf, unsafe.Pointer(C.CString("")), 0)
@@ -285,6 +415,17 @@ func (c *Connection) Close() {
 		C.ptls_free(c.tls)
 		c.closed = true
 	}
+}
+
+type Cipher C.ptls_cipher_context_t
+func (c *Connection) NewCipher(key []byte) *Cipher {  // Creates a new symmetric cipher based on the CTR cipher used for AEAD
+	return (*Cipher)(C.ptls_cipher_new(c.aead().ctr_cipher, C.int(0), unsafe.Pointer(&key[0])))
+}
+func (c *Cipher) Encrypt(iv []byte, data []byte) []byte {
+	var output [256]byte
+	C.ptls_cipher_init((*C.ptls_cipher_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&iv[0]))
+	C.ptls_cipher_encrypt((*C.ptls_cipher_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&output),  unsafe.Pointer(&data[0]), sizeofBytes(data))
+	return output[:len(data)]
 }
 
 func bufToSlice(buf C.ptls_buffer_t) []byte  { return C.GoBytes(unsafe.Pointer(buf.base), C.int(buf.off)) }
