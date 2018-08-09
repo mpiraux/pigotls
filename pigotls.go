@@ -118,15 +118,15 @@ int cb_traffic_secret(struct st_ptls_update_traffic_key_t *self, ptls_t *tls, in
 	size_t secret_len = hash->digest_size;
 
 	if (epoch == 1 && is_enc == 1) {
-		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_log_secret_t));
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t));
 	} else if (epoch == 2 && is_enc == 0) {
-		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_log_secret_t) + sizeof(ptls_iovec_t*));
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t) + sizeof(ptls_iovec_t*));
 	} else if (epoch == 2 && is_enc == 1) {
-		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_log_secret_t) + (sizeof(ptls_iovec_t*) * 2));
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*) * 2));
 	} else if (epoch == 3 && is_enc == 0) {
-		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_log_secret_t) + (sizeof(ptls_iovec_t*) * 3));
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*) * 3));
 	} else if (epoch == 3 && is_enc == 1) {
-		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_log_secret_t) + (sizeof(ptls_iovec_t*) * 4));
+		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*) * 4));
 	}
 
 	if (receiver != NULL) {
@@ -142,13 +142,13 @@ void set_traffic_secret_cb(ptls_context_t *ctx, ptls_iovec_t *zero_rtt, ptls_iov
 	update_secret->cb = cb_traffic_secret;
 	ptls_iovec_t** ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t));
 	*ppreceiver = zero_rtt;
-	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_log_secret_t) + sizeof(ptls_iovec_t*));
+	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t) + sizeof(ptls_iovec_t*));
 	*ppreceiver = hs_dec;
-	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_log_secret_t) + (sizeof(ptls_iovec_t*)*2));
+	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*)*2));
 	*ppreceiver = hs_enc;
-	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_log_secret_t) + (sizeof(ptls_iovec_t*)*3));
+	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*)*3));
 	*ppreceiver = ap_dec;
-	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_log_secret_t) + (sizeof(ptls_iovec_t*)*4));
+	ppreceiver = (ptls_iovec_t**)(((char*)update_secret) + sizeof(ptls_update_traffic_key_t) + (sizeof(ptls_iovec_t*)*4));
 	*ppreceiver = ap_enc;
 	ctx->update_traffic_key = update_secret;
 }
