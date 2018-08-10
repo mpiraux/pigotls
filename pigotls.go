@@ -304,7 +304,7 @@ func (c *Connection) HandleMessage(data []byte, epoch Epoch) ([]byte, bool, erro
 		inputLen = sizeofBytes(data)
 	}
 
-	ret := C.handle_message(c.tls, &sendbuf, C.ulong(epoch), recbuf, inputLen, c.Context.handshakeProperties)
+	ret := C.handle_message(c.tls, &sendbuf, C.size_t(epoch), recbuf, inputLen, c.Context.handshakeProperties)
 
 	if ret != 0 && ret != C.PTLS_ERROR_IN_PROGRESS {
 		return nil, false, Error{int(ret)}
