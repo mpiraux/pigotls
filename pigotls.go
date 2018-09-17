@@ -428,6 +428,9 @@ func (c *Connection) Close() {
 		c.closed = true
 	}
 }
+func (c *Connection) ClientRandom() []byte {
+	return ioVecToSlice(C.ptls_get_client_random(c.tls))
+}
 
 type Cipher C.ptls_cipher_context_t
 func (c *Connection) NewCipher(key []byte) *Cipher {  // Creates a new symmetric cipher based on the CTR cipher used for AEAD
