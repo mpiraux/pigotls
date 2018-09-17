@@ -100,11 +100,6 @@ void set_secret_cb(ptls_context_t *ctx, ptls_iovec_t *exporter_receiver, ptls_io
 	ctx->log_secret = save_secret;
 }
 
-int handle_message(ptls_t *tls, ptls_buffer_t *sendbuf, size_t in_epoch, const void *input, size_t inlen, ptls_handshake_properties_t *properties) {
-	size_t epoch_offsets[5];
-	return ptls_handle_message(tls, sendbuf, epoch_offsets, in_epoch, input, inlen, properties);
-}
-
 int cb_traffic_secret(struct st_ptls_update_traffic_key_t *self, ptls_t *tls, int is_enc, size_t epoch, const void *secret) {
 	ptls_iovec_t *receiver = NULL;
 
@@ -173,12 +168,19 @@ const (
 	Epoch1RTT            = 3
 )
 
+var Epochs = []Epoch{EpochInitial, Epoch0RTT, EpochHandshake, Epoch1RTT}
+
 type Error struct {
 	errorCode int
 }
 
 func (e Error) Error() string {
 	return fmt.Sprintf("picotls error code %d", e.errorCode)
+}
+
+type Message struct {
+	Data  []byte
+	Epoch Epoch
 }
 
 type Context struct {
@@ -290,7 +292,7 @@ func NewConnection(serverName string, ALPN string, resumptionTicket []byte) *Con
 	return c
 }
 
-func (c *Connection) HandleMessage(data []byte, epoch Epoch) ([]byte, bool, error) {
+func (c *Connection) HandleMessage(data []byte, epoch Epoch) ([]Message, bool, error) {
 	var sendbuf C.ptls_buffer_t
 	C.ptls_buffer_init(&sendbuf, unsafe.Pointer(C.CString("")), 0)
 	defer C.ptls_buffer_dispose(&sendbuf)
@@ -304,13 +306,23 @@ func (c *Connection) HandleMessage(data []byte, epoch Epoch) ([]byte, bool, erro
 		inputLen = sizeofBytes(data)
 	}
 
-	ret := C.handle_message(c.tls, &sendbuf, C.size_t(epoch), recbuf, inputLen, c.Context.handshakeProperties)
+	var epoch_offsets [5]C.size_t
+	ret := C.ptls_handle_message(c.tls, &sendbuf, (*C.size_t)(unsafe.Pointer(&epoch_offsets)), C.size_t(epoch), recbuf, inputLen, c.Context.handshakeProperties)
+
+	retBuf := bufToSlice(sendbuf)
+	var messages []Message
+
+	for i, e := range Epochs {
+		if epoch_offsets[i+1] > epoch_offsets[i] {
+			messages = append(messages, Message{retBuf[epoch_offsets[i]:epoch_offsets[i+1]], e})
+		}
+	}
 
 	if ret != 0 && ret != C.PTLS_ERROR_IN_PROGRESS {
 		return nil, false, Error{int(ret)}
 	}
 
-	return bufToSlice(sendbuf), ret != 0, nil
+	return messages, ret != 0, nil
 }
 
 func (c *Connection) InitiateHandshake() ([]byte, bool, error) {
