@@ -5,6 +5,7 @@ package pigotls
 #include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdbool.h>
 #include <picotls/include/picotls.h>
 #include <picotls/include/picotls/openssl.h>
 
@@ -31,6 +32,7 @@ void init_ctx(ptls_context_t *ctx) {
 	ctx->key_exchanges = ptls_openssl_key_exchanges;
 	ctx->cipher_suites = ptls_openssl_cipher_suites;
 	ctx->get_time = &ptls_get_time;
+	ctx->omit_end_of_early_data = true;
 }
 
 void set_handshake_properties(ptls_handshake_properties_t *props, ptls_iovec_t *alpn, ptls_iovec_t *session_ticket, size_t *max_early_data) {
