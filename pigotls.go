@@ -149,6 +149,20 @@ void set_traffic_secret_cb(ptls_context_t *ctx, ptls_iovec_t *zero_rtt, ptls_iov
 	*ppreceiver = ap_enc;
 	ctx->update_traffic_key = update_secret;
 }
+
+ptls_cipher_suite_t *find_cipher_suite(ptls_context_t *ctx, uint16_t id)
+{
+    ptls_cipher_suite_t **cs;
+
+    for (cs = ctx->cipher_suites; *cs != NULL && (*cs)->id != id; ++cs)
+        ;
+    return *cs;
+}
+
+void restrict_cipher_suite(ptls_context_t *ctx, ptls_cipher_suite_t *cs) {
+	*ctx->cipher_suites = cs;
+	*(ctx->cipher_suites + 1) = NULL;
+}
 */
 import "C"
 import (
@@ -159,6 +173,9 @@ import (
 const (
 	QuicTransportParametersTLSExtension = 0xffa5
 	QuicBaseLabel                       = "quic "
+	CS_AES_128_GCM_SHA256            = uint16(0x1301)
+	CS_AES_256_GCM_SHA384            = uint16(0x1302)
+	CS_CHACHA20_POLY1305_SHA256      = uint16(0x1303)
 )
 
 var quicBaseLabelC = C.CString(QuicBaseLabel)
@@ -257,6 +274,9 @@ func (c Context) ReceivedQUICTransportParameters() []byte {
 		return ioVecToSlice(extension.data)
 	}
 	return nil
+}
+func (c Context) RestrictCipherSuite(csID uint16) {
+	C.restrict_cipher_suite(c.ctx, C.find_cipher_suite(c.ctx, C.ushort(csID)))
 }
 func (c Context) ResumptionTicket() []byte {
 	return ioVecToSlice(*c.savedTicket)
