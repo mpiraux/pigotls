@@ -276,7 +276,7 @@ func (c Context) ReceivedQUICTransportParameters() []byte {
 	return nil
 }
 func (c Context) RestrictCipherSuite(csID uint16) {
-	C.restrict_cipher_suite(c.ctx, C.find_cipher_suite(c.ctx, C.ushort(csID)))
+	C.restrict_cipher_suite(c.ctx, C.find_cipher_suite(c.ctx, C.uint16_t(csID)))
 }
 func (c Context) ResumptionTicket() []byte {
 	return ioVecToSlice(*c.savedTicket)
@@ -477,12 +477,12 @@ func (c *Connection) NewAEAD(key []byte, encryption bool) *AEAD {
 }
 func (c *AEAD) Encrypt(cleartext []byte, seq uint64, aad []byte) []byte {
 	ciphertext := make([]byte, len(cleartext) + c.Overhead())
-	ret := C.ptls_aead_encrypt((*C.ptls_aead_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&ciphertext[0]), unsafe.Pointer(&cleartext[0]), C.size_t(len(cleartext)), C.ulong(seq), unsafe.Pointer(&aad[0]), C.size_t(len(aad)))
+	ret := C.ptls_aead_encrypt((*C.ptls_aead_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&ciphertext[0]), unsafe.Pointer(&cleartext[0]), C.size_t(len(cleartext)), C.uint64_t(seq), unsafe.Pointer(&aad[0]), C.size_t(len(aad)))
 	return ciphertext[:ret]
 }
 func (c *AEAD) Decrypt(ciphertext []byte, seq uint64, aad []byte) []byte {
 	cleartext := make([]byte, len(ciphertext) - c.Overhead())
-	ret := C.ptls_aead_decrypt((*C.ptls_aead_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&cleartext[0]), unsafe.Pointer(&ciphertext[0]), C.size_t(len(ciphertext)), C.ulong(seq), unsafe.Pointer(&aad[0]), C.size_t(len(aad)))
+	ret := C.ptls_aead_decrypt((*C.ptls_aead_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&cleartext[0]), unsafe.Pointer(&ciphertext[0]), C.size_t(len(ciphertext)), C.uint64_t(seq), unsafe.Pointer(&aad[0]), C.size_t(len(aad)))
 	if ret == C.SIZE_MAX {
 		return nil
 	}
