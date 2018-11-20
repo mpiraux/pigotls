@@ -161,6 +161,8 @@ const (
 	QuicBaseLabel                       = "quic "
 )
 
+var quicBaseLabelC = C.CString(QuicBaseLabel)
+
 type Epoch int
 
 const (
@@ -443,6 +445,31 @@ func (c *Cipher) Encrypt(iv []byte, data []byte) []byte {
 	C.ptls_cipher_init((*C.ptls_cipher_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&iv[0]))
 	C.ptls_cipher_encrypt((*C.ptls_cipher_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&output),  unsafe.Pointer(&data[0]), sizeofBytes(data))
 	return output[:len(data)]
+}
+
+type AEAD C.ptls_aead_context_t
+func (c *Connection) NewAEAD(key []byte, encryption bool) *AEAD {
+	var enc C.int
+	if encryption {
+		enc = 1
+	}
+	return (*AEAD)(C.ptls_aead_new(c.aead(), c.hash(), enc, unsafe.Pointer(&key[0]), quicBaseLabelC))
+}
+func (c *AEAD) Encrypt(cleartext []byte, seq uint64, aad []byte) []byte {
+	ciphertext := make([]byte, len(cleartext) + c.Overhead())
+	ret := C.ptls_aead_encrypt((*C.ptls_aead_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&ciphertext[0]), unsafe.Pointer(&cleartext[0]), C.size_t(len(cleartext)), C.ulong(seq), unsafe.Pointer(&aad[0]), C.size_t(len(aad)))
+	return ciphertext[:ret]
+}
+func (c *AEAD) Decrypt(ciphertext []byte, seq uint64, aad []byte) []byte {
+	cleartext := make([]byte, len(ciphertext) - c.Overhead())
+	ret := C.ptls_aead_decrypt((*C.ptls_aead_context_t)(unsafe.Pointer(c)), unsafe.Pointer(&cleartext[0]), unsafe.Pointer(&ciphertext[0]), C.size_t(len(ciphertext)), C.ulong(seq), unsafe.Pointer(&aad[0]), C.size_t(len(aad)))
+	if ret == C.SIZE_MAX {
+		return nil
+	}
+	return cleartext[:ret]
+}
+func (c *AEAD) Overhead() int {
+	return int(c.algo.tag_size)
 }
 
 func bufToSlice(buf C.ptls_buffer_t) []byte  { return C.GoBytes(unsafe.Pointer(buf.base), C.int(buf.off)) }
