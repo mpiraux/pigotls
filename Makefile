@@ -10,4 +10,4 @@ all:
 	make
 	make check
 	cd ..
-	CGO_LDFLAGS_ALLOW=.*picotls.* go build pigotls.go
+	CGO_LDFLAGS_ALLOW=.*picotls.* go build .
