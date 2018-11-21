@@ -1,0 +1,15 @@
+dist: xenial
+language: go
+
+go:
+  - "1.9"
+  - "1.10"
+  - "1.11"
+
+install:
+  - sudo apt-get install -y openssl libssl-dev
+  - go get -t -v ./... || true
+  - cd $GOPATH/src/github.com/mpiraux/pigotls && make
+
+script:
+  - go test
