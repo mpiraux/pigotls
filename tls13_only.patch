@@ -1,8 +1,8 @@
 diff --git a/lib/picotls.c b/lib/picotls.c
-index 4eaf674..9616862 100644
+index 69adcae..0658a1f 100644
 --- a/lib/picotls.c
 +++ b/lib/picotls.c
-@@ -102,8 +102,7 @@
+@@ -95,8 +95,7 @@
  /**
   * list of supported versions in the preferred order
   */
