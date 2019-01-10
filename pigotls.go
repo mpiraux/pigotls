@@ -26,10 +26,27 @@ int collected_extensions(ptls_t *tls, struct st_ptls_handshake_properties_t *pro
 	return 0;
 }
 
+void add_x25519(ptls_context_t *ctx) {
+	int n_kea = 0;
+	for (n_kea = 0; ctx->key_exchanges != NULL && *(ctx->key_exchanges+n_kea) != NULL; n_kea++) {
+		if (*(ctx->key_exchanges+n_kea) == &ptls_openssl_x25519) {
+			return;
+		}
+	}
+	ptls_key_exchange_algorithm_t **kea = (ptls_key_exchange_algorithm_t **) malloc(sizeof(ptls_key_exchange_algorithm_t *)*(n_kea+2));
+	for (int i = 0; i < n_kea; i++) {
+		*(kea+i) = *(ctx->key_exchanges+i);
+	}
+	*(kea+n_kea) = &ptls_openssl_x25519;
+	*(kea+n_kea+1) = NULL;
+	ctx->key_exchanges = kea;
+}
+
 void init_ctx(ptls_context_t *ctx) {
-	ctx->hkdf_label_prefix = "quic ";
+	ctx->hkdf_label_prefix__obsolete = NULL;
 	ctx->random_bytes = ptls_openssl_random_bytes;
 	ctx->key_exchanges = ptls_openssl_key_exchanges;
+	add_x25519(ctx);
 	ctx->cipher_suites = ptls_openssl_cipher_suites;
 	ctx->get_time = &ptls_get_time;
 	ctx->omit_end_of_early_data = true;
