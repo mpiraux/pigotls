@@ -172,10 +172,11 @@ import (
 
 const (
 	QuicTransportParametersTLSExtension = 0xffa5
-	QuicBaseLabel                       = "quic "
-	CS_AES_128_GCM_SHA256            = uint16(0x1301)
-	CS_AES_256_GCM_SHA384            = uint16(0x1302)
-	CS_CHACHA20_POLY1305_SHA256      = uint16(0x1303)
+	BaseLabel                           = C.PTLS_HKDF_EXPAND_LABEL_PREFIX
+	QuicBaseLabel                       = C.PTLS_HKDF_EXPAND_LABEL_PREFIX + "quic "
+	CS_AES_128_GCM_SHA256               = uint16(0x1301)
+	CS_AES_256_GCM_SHA384               = uint16(0x1302)
+	CS_CHACHA20_POLY1305_SHA256         = uint16(0x1303)
 )
 
 var quicBaseLabelC = C.CString(QuicBaseLabel)
@@ -426,10 +427,10 @@ func (c *Connection) HkdfExpand(prk, info []byte, length int) []byte {
 	return output[:length]
 }
 
-func (c *Connection) HkdfExpandLabel(secret []byte, label string, hashValue []byte, length int) []byte {
+func (c *Connection) HkdfExpandLabel(secret []byte, label string, hashValue []byte, length int, baseLabel string) []byte {
 	var output [256]byte
 	C.ptls_hkdf_expand_label(c.hash(), unsafe.Pointer(&output), (C.size_t)(length), toIOVec(secret),
-		C.CString(label), toIOVec(hashValue), C.CString(QuicBaseLabel))
+		C.CString(label), toIOVec(hashValue), C.CString(baseLabel))
 	return output[:length]
 }
 func (c *Connection) ExportSecret(label string, context []byte, isEarly bool) ([]byte, error) {
