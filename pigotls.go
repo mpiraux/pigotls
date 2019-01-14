@@ -26,6 +26,7 @@ int collected_extensions(ptls_t *tls, struct st_ptls_handshake_properties_t *pro
 	return 0;
 }
 
+#ifdef PTLS_OPENSSL_HAVE_X25519
 void add_x25519(ptls_context_t *ctx) {
 	int n_kea = 0;
 	for (n_kea = 0; ctx->key_exchanges != NULL && *(ctx->key_exchanges+n_kea) != NULL; n_kea++) {
@@ -41,12 +42,15 @@ void add_x25519(ptls_context_t *ctx) {
 	*(kea+n_kea+1) = NULL;
 	ctx->key_exchanges = kea;
 }
+#endif
 
 void init_ctx(ptls_context_t *ctx) {
 	ctx->hkdf_label_prefix__obsolete = NULL;
 	ctx->random_bytes = ptls_openssl_random_bytes;
 	ctx->key_exchanges = ptls_openssl_key_exchanges;
+#ifdef PTLS_OPENSSL_HAVE_X25519
 	add_x25519(ctx);
+#endif
 	ctx->cipher_suites = ptls_openssl_cipher_suites;
 	ctx->get_time = &ptls_get_time;
 	ctx->omit_end_of_early_data = true;
