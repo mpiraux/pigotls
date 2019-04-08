@@ -8,4 +8,5 @@ all:
 	cmake .; \
 	make; \
 	make check;
-	CGO_LDFLAGS_ALLOW=.*picotls.* go build .
+	CGO_LDFLAGS_ALLOW=\(.*picotls.*\)\|\(.*libssl.*\)\|\(.*libcrypto.*\) go build -n .
+	CGO_LDFLAGS_ALLOW=\(.*picotls.*\)\|\(.*libssl.*\)\|\(.*libcrypto.*\) go build .

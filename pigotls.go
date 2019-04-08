@@ -1,6 +1,7 @@
 package pigotls
 
 /*
+#cgo CFLAGS: -I /usr/local/include/
 #cgo LDFLAGS: ${SRCDIR}/picotls/libpicotls-core.a ${SRCDIR}/picotls/libpicotls-openssl.a -lssl -lcrypto
 #include <stdlib.h>
 #include <stddef.h>
