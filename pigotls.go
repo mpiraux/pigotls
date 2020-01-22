@@ -100,30 +100,6 @@ void set_ticket_cb(ptls_context_t *ctx, ptls_iovec_t *receiver) {
 	ctx->save_ticket = save_ticket;
 }
 
-void cb_secret(struct st_ptls_log_secret_t *self, ptls_t *tls, const char *label, ptls_iovec_t secret) {
-	ptls_iovec_t *receiver = NULL;
-	if (strcmp(label, "EXPORTER_SECRET") == 0) {
-		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_log_secret_t));
-	} else if (strcmp(label, "EARLY_EXPORTER_SECRET") == 0) {
-		receiver = *(ptls_iovec_t**) (((char*)self) + sizeof(ptls_log_secret_t) + sizeof(ptls_iovec_t*));
-	}
-	if (receiver != NULL) {
-		receiver->base = malloc(secret.len);
-		memcpy(receiver->base, secret.base, secret.len);
-		receiver->len = secret.len;
-	}
-}
-
-void set_secret_cb(ptls_context_t *ctx, ptls_iovec_t *exporter_receiver, ptls_iovec_t *early_exporter_receiver) {
-	ptls_log_secret_t* save_secret = malloc(sizeof(ptls_log_secret_t) + (sizeof(ptls_iovec_t*) * 2));
-	save_secret->cb = cb_secret;
-	ptls_iovec_t** ppreceiver = (ptls_iovec_t**)(((char*)save_secret) + sizeof(ptls_log_secret_t));
-	*ppreceiver = exporter_receiver;
-	ppreceiver = (ptls_iovec_t**)(((char*)save_secret) + sizeof(ptls_log_secret_t) + sizeof(ptls_iovec_t*));
-	*ppreceiver = early_exporter_receiver;
-	ctx->log_secret = save_secret;
-}
-
 int cb_traffic_secret(struct st_ptls_update_traffic_key_t *self, ptls_t *tls, int is_enc, size_t epoch, const void *secret) {
 	ptls_iovec_t *receiver = NULL;
 
@@ -231,8 +207,6 @@ type Context struct {
 	ctx                 *C.ptls_context_t
 	handshakeProperties *C.ptls_handshake_properties_t
 	savedTicket         *C.ptls_iovec_t
-	exporterSecret      *C.ptls_iovec_t
-	earlyExporterSecret *C.ptls_iovec_t
 	maxEarlyData 		*C.size_t
 
 	zeroRTTSecret *C.ptls_iovec_t
@@ -246,8 +220,6 @@ func NewContext(ALPN string, resumptionTicket []byte) Context {
 	var ctx C.ptls_context_t
 	var handshakeProperties C.ptls_handshake_properties_t
 	var savedTicket C.ptls_iovec_t
-	var exporterSecret C.ptls_iovec_t
-	var earlyExporterSecret C.ptls_iovec_t
 	var maxEarlyData C.size_t
 
 	var zeroRTTSecret C.ptls_iovec_t
@@ -261,8 +233,6 @@ func NewContext(ALPN string, resumptionTicket []byte) Context {
 		ctx: &ctx,
 		handshakeProperties: &handshakeProperties,
 		savedTicket: &savedTicket,
-		exporterSecret: &exporterSecret,
-		earlyExporterSecret: &earlyExporterSecret,
 		maxEarlyData: &maxEarlyData,
 
 		zeroRTTSecret: &zeroRTTSecret,
@@ -278,7 +248,6 @@ func NewContext(ALPN string, resumptionTicket []byte) Context {
 	resumptionTicketVec := toIOVec(resumptionTicket)
 	C.set_handshake_properties(c.handshakeProperties, &alpnVec, &resumptionTicketVec, c.maxEarlyData)
 	C.set_ticket_cb(c.ctx, c.savedTicket)
-	C.set_secret_cb(c.ctx, c.exporterSecret, c.earlyExporterSecret)
 	C.set_traffic_secret_cb(c.ctx, c.zeroRTTSecret, c.hsReadSecret, c.hsWriteSecret, c.apReadSecret, c.apWriteSecret)
 
 	return c
@@ -303,12 +272,6 @@ func (c Context) RestrictCipherSuite(csID uint16) {
 }
 func (c Context) ResumptionTicket() []byte {
 	return ioVecToSlice(*c.savedTicket)
-}
-func (c Context) ExporterSecret() []byte {
-	return ioVecToSlice(*c.exporterSecret)
-}
-func (c Context) EarlyExporterSecret() []byte {
-	return ioVecToSlice(*c.earlyExporterSecret)
 }
 func (c Context) ZeroRTTSecret() []byte {
 	return ioVecToSlice(*c.zeroRTTSecret)
