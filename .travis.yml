@@ -15,6 +15,10 @@ addons:
       - faketime
       - libscope-guard-perl
       - libtest-tcp-perl
+  homebrew:
+    packages:
+      - libfaketime
+      - openssl
 
 before_install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export OPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1/; fi 
@@ -23,6 +27,9 @@ before_install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ln -s /usr/local/opt/openssl@1.1/lib/libcrypto.a /usr/local/lib/libcrypto.a; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ln -s /usr/local/opt/openssl@1.1/lib/libssl.dylib /usr/local/lib/libssl.dylib; fi
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then ln -s /usr/local/opt/openssl@1.1/lib/libssl.a /usr/local/lib/libssl.a; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then curl -L https://cpanmin.us | sudo perl - App::cpanminus; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then sudo cpanm --notest Scope::Guard; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then sudo cpanm --notest Test::TCP; fi
 
 install:
   - go get -t -v ./... || true
