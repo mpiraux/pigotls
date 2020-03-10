@@ -55,6 +55,7 @@ void init_ctx(ptls_context_t *ctx) {
 	ctx->cipher_suites = ptls_openssl_cipher_suites;
 	ctx->get_time = &ptls_get_time;
 	ctx->omit_end_of_early_data = true;
+	ctx->send_change_cipher_spec = 0;
 }
 
 void set_handshake_properties(ptls_handshake_properties_t *props, ptls_iovec_t *alpn, ptls_iovec_t *session_ticket, size_t *max_early_data) {
@@ -62,9 +63,11 @@ void set_handshake_properties(ptls_handshake_properties_t *props, ptls_iovec_t *
 	props->client.negotiated_protocols.list = alpn;
 	props->collect_extension = collect_quic_extension;
 	props->collected_extensions = collected_extensions;
+	props->client.negotiate_before_key_exchange = 0;
 	if (session_ticket != NULL && session_ticket->base != NULL) {
 		props->client.session_ticket = *session_ticket;
 		props->client.max_early_data_size = max_early_data;
+		props->client.negotiate_before_key_exchange = 1;
 	}
 }
 
@@ -208,6 +211,7 @@ type Context struct {
 	handshakeProperties *C.ptls_handshake_properties_t
 	savedTicket         *C.ptls_iovec_t
 	maxEarlyData 		*C.size_t
+	alpnVec 			C.ptls_iovec_t
 
 	zeroRTTSecret *C.ptls_iovec_t
 	hsReadSecret  *C.ptls_iovec_t
@@ -244,9 +248,9 @@ func NewContext(ALPN string, resumptionTicket []byte) Context {
 
 	C.init_ctx(&ctx)
 
-	alpnVec := toIOVec([]byte(ALPN))
+	c.alpnVec = toIOVec([]byte(ALPN))
 	resumptionTicketVec := toIOVec(resumptionTicket)
-	C.set_handshake_properties(c.handshakeProperties, &alpnVec, &resumptionTicketVec, c.maxEarlyData)
+	C.set_handshake_properties(c.handshakeProperties, &c.alpnVec, &resumptionTicketVec, c.maxEarlyData)
 	C.set_ticket_cb(c.ctx, c.savedTicket)
 	C.set_traffic_secret_cb(c.ctx, c.zeroRTTSecret, c.hsReadSecret, c.hsWriteSecret, c.apReadSecret, c.apWriteSecret)
 
